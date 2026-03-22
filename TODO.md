@@ -1,0 +1,1 @@
+# Fix Python run.py Error\n\n## Steps:\n1. [x] Create .vscode/settings.json to lock interpreter to Python 3.11 venv.\n2. [ ] Reload VSCode, select interpreter.\n3. [ ] Run `python run.py` (Flask on port 4000).\n4. [ ] Access http://127.0.0.1:4000.

@@ -1,0 +1,338 @@
+{% extends "layout.html" %}
+
+{% block title %}Dashboard - FormatHub{% endblock %}
+
+{% block stylesheets %}{% endblock %}
+
+{% block extra_styles %}
+<style>
+:root {
+    --primary-color: #0d6efd;
+    --secondary-color: #6c757d;
+    --success-color: #198754;
+    --info-color: #0dcaf0;
+    --warning-color: #ffc107;
+    --danger-color: #dc3545;
+    --light-color: #f8f9fa;
+    --dark-color: #212529;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f0f2f5;
+    color: #333;
+}
+
+.navbar {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, .1);
+}
+
+.card {
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, .05);
+    transition: transform 0.2s;
+}
+
+.card:hover {
+    transform: translateY(-2px);
+}
+
+.btn {
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-weight: 500;
+}
+
+.btn-xs {
+    padding: 2px 6px;
+    font-size: 0.75rem;
+    border-radius: 4px;
+}
+
+.badge {
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-weight: 500;
+}
+
+/* DataTables Customization */
+.dataTables_wrapper .dataTables_paginate .paginate_button {
+    padding: 0.5em 1em;
+}
+
+td[contenteditable="true"]:focus {
+    outline: 2px solid var(--primary-color);
+    background-color: #fff;
+    box-shadow: inset 0 0 5px rgba(0, 0, 0, .1);
+}
+
+.bg-success-subtle {
+    background-color: #d1e7dd !important;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #aaa;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>Your Files</h2>
+            <div>
+                <button type="button" class="btn btn-outline-success me-2" data-bs-toggle="modal" data-bs-target="#newFileModal">
+                    <i class="bi bi-file-earmark-plus"></i> Create New
+                </button>
+                <button type="submit" form="mergeForm" class="btn btn-outline-warning me-2">
+                    <i class="bi bi-intersect"></i> Merge Selected
+                </button>
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#uploadModal">
+                    <i class="bi bi-upload"></i> Upload
+                </button>
+            </div>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-body">
+                {% if files %}
+                    <form action="{{ url_for('files.merge_files') }}" method="POST" id="mergeForm">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th><input type="checkbox" id="selectAll"></th>
+                                    <th>Filename</th>
+                                    <th>Type</th>
+                                    <th>Uploaded At</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for file in files %}
+                                    <tr>
+                                        <td><input type="checkbox" name="file_ids" value="{{ file.id }}" class="file-checkbox"></td>
+                                        <td>{{ file.original_filename }}</td>
+                                        <td><span class="badge bg-secondary">{{ file.file_type.upper() }}</span></td>
+                                        <td>{{ file.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                        <td>
+                                            <div class="btn-group">
+                                                <a href="{{ url_for('files.view', file_id=file.id) }}" class="btn btn-xs btn-outline-primary">View/Edit</a>
+                                                {% if file.file_type.lower() != 'csv' %}
+                                                    <a href="{{ url_for('conversion.convert', file_id=file.id, target_format='csv') }}" class="btn btn-xs btn-outline-success">CSV</a>
+                                                {% endif %}
+                                                {% if file.file_type.lower() not in ['xlsx', 'xls'] %}
+                                                    <a href="{{ url_for('conversion.convert', file_id=file.id, target_format='xlsx') }}" class="btn btn-xs btn-outline-success">Excel</a>
+                                                {% endif %}
+                                                <a href="{{ url_for('conversion.convert', file_id=file.id, target_format='pdf') }}" class="btn btn-xs btn-outline-danger">PDF</a>
+                                                <a href="{{ url_for('conversion.convert', file_id=file.id, target_format='txt') }}" class="btn btn-xs btn-outline-secondary">TXT</a>
+                                                {% if file.file_type.lower() not in ['db', 'sqlite'] %}
+                                                    <a href="{{ url_for('conversion.convert', file_id=file.id, target_format='db') }}" class="btn btn-xs btn-outline-info">DB</a>
+                                                {% endif %}
+                                                {% if file.file_type.lower() not in ['sql'] %}
+                                                    <a href="{{ url_for('conversion.convert', file_id=file.id, target_format='sql') }}" class="btn btn-xs btn-outline-info">SQL</a>
+                                                {% endif %}
+                                                <button type="button" class="btn btn-xs btn-outline-warning" data-bs-toggle="modal" data-bs-target="#splitModal-{{ file.id }}">Split</button>
+                                            </div>
+                                            
+                                            {% if file.conversions.all() %}
+                                                <div class="mt-2">
+                                                    <span class="small text-muted">Downloads:</span>
+                                                    <div class="d-flex flex-wrap gap-1">
+                                                        {% for conv in file.conversions %}
+                                                            <a href="{{ url_for('conversion.download', conversion_id=conv.id) }}" class="badge bg-primary text-decoration-none">
+                                                                {{ conv.output_format.upper() }}
+                                                            </a>
+                                                        {% endfor %}
+                                                    </div>
+                                                </div>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    </form>
+                    
+                {% else %}
+                    <p class="text-center text-muted my-5">You haven't uploaded any files yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Split Modals -->
+{% for file in files %}
+<div class="modal fade" id="splitModal-{{ file.id }}" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Split File: {{ file.original_filename }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="{{ url_for('files.split_file', file_id=file.id) }}" method="POST">
+                <div class="modal-body">
+                    <ul class="nav nav-tabs mb-3" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#chunk-{{ file.id }}" type="button" role="tab">By Chunk Size</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#range-{{ file.id }}" type="button" role="tab">Custom Range</button>
+                        </li>
+                    </ul>
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="chunk-{{ file.id }}" role="tabpanel">
+                            <div class="mb-3">
+                                <label class="form-label">Rows per split chunk:</label>
+                                <input type="number" class="form-control" name="rows" value="100" min="1">
+                                <div class="form-text">Splits the entire file into equal parts.</div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="range-{{ file.id }}" role="tabpanel">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Start Row (1-indexed):</label>
+                                    <input type="number" class="form-control" name="start_row" min="1">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">End Row:</label>
+                                    <input type="number" class="form-control" name="end_row" min="1">
+                                </div>
+                            </div>
+                            <div class="form-text">Extracts a single file containing only this row range.</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-warning">Split Now</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+<!-- Upload Modal -->
+<div class="modal fade" id="uploadModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Upload File</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="{{ url_for('dashboard.upload') }}" method="POST" enctype="multipart/form-data">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="file" class="form-label">Select File (CSV, Excel, SQLite, SQL)</label>
+                        <input class="form-control" type="file" id="file" name="file" accept=".csv,.xlsx,.xls,.db,.sqlite,.sql" required>
+                    </div>
+                    <p class="small text-muted">Supported formats: .csv, .xlsx, .xls, .db, .sqlite, .sql</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Upload</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<!-- New File Modal -->
+<div class="modal fade" id="newFileModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Create New File</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="{{ url_for('files.new_file') }}" method="POST">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="filename" class="form-label">Filename</label>
+                        <input class="form-control" type="text" id="filename" name="filename" placeholder="e.g. my_data" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="file_type" class="form-label">File Type</label>
+                        <select class="form-select" id="file_type" name="file_type" required>
+                            <option value="csv">CSV (Spreadsheet)</option>
+                            <option value="xlsx">Excel (XLSX)</option>
+                            <option value="db">SQLite Database (DB)</option>
+                        </select>
+                        <div class="form-text">Choose the format for your new file.</div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Create File</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('selectAll')?.addEventListener('change', function(e) {
+    document.querySelectorAll('.file-checkbox').forEach(cb => cb.checked = e.target.checked);
+    checkMergeCompat();
+});
+
+let mergeButton = document.querySelector('button[form="mergeForm"]');
+let debounceTimer;
+
+function checkMergeCompat() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(async () => {
+        const selected = Array.from(document.querySelectorAll('.file-checkbox:checked')).map(cb => cb.value);
+        if (selected.length < 2) {
+            mergeButton.disabled = true;
+            mergeButton.innerHTML = '<i class="bi bi-intersect"></i> Merge Selected';
+            return;
+        }
+
+        try {
+            const response = await fetch('{{ url_for("files.check_merge_compat") }}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({file_ids: selected.map(id => parseInt(id))})
+            });
+            const data = await response.json();
+            mergeButton.disabled = !data.compatible;
+            if (data.compatible) {
+                mergeButton.innerHTML = `<i class="bi bi-intersect"></i> Merge Selected (${selected.length})`;
+            } else {
+                mergeButton.title = data.reason;
+                mergeButton.innerHTML = '<i class="bi bi-x-circle"></i> Incompatible';
+            }
+        } catch (e) {
+            console.error('Check compat error:', e);
+            mergeButton.disabled = true;
+            mergeButton.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Error';
+        }
+    }, 300);
+}
+
+document.querySelectorAll('.file-checkbox').forEach(cb => {
+    cb.addEventListener('change', checkMergeCompat);
+});
+checkMergeCompat();
+</script>
+{% endblock %}
