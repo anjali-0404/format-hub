@@ -98,11 +98,19 @@ td[contenteditable="true"]:focus {
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h2>Your Files</h2>
             <div>
+                {% if current_user.is_admin %}
+                <a href="{{ url_for('admin.index') }}" class="btn btn-outline-dark me-2">
+                    <i class="bi bi-shield-lock"></i> Admin
+                </a>
+                {% endif %}
                 <button type="button" class="btn btn-outline-success me-2" data-bs-toggle="modal" data-bs-target="#newFileModal">
                     <i class="bi bi-file-earmark-plus"></i> Create New
                 </button>
                 <button type="submit" form="mergeForm" class="btn btn-outline-warning me-2">
                     <i class="bi bi-intersect"></i> Merge Selected
+                </button>
+                <button type="button" class="btn btn-outline-danger me-2" id="bulkDeleteBtn" disabled>
+                    <i class="bi bi-trash"></i> Delete Selected
                 </button>
                 <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#uploadModal">
                     <i class="bi bi-upload"></i> Upload
@@ -133,23 +141,27 @@ td[contenteditable="true"]:focus {
                                         <td><span class="badge bg-secondary">{{ file.file_type.upper() }}</span></td>
                                         <td>{{ file.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                                         <td>
-                                            <div class="btn-group">
+                                            <div class="btn-group" role="group">
                                                 <a href="{{ url_for('files.view', file_id=file.id) }}" class="btn btn-xs btn-outline-primary">View/Edit</a>
                                                 {% if file.file_type.lower() != 'csv' %}
-                                                    <a href="{{ url_for('conversion.convert', file_id=file.id, target_format='csv') }}" class="btn btn-xs btn-outline-success">CSV</a>
+                                                    <button type="button" class="btn btn-xs btn-outline-success convert-btn" data-file-id="{{ file.id }}" data-format="csv">CSV</button>
                                                 {% endif %}
                                                 {% if file.file_type.lower() not in ['xlsx', 'xls'] %}
-                                                    <a href="{{ url_for('conversion.convert', file_id=file.id, target_format='xlsx') }}" class="btn btn-xs btn-outline-success">Excel</a>
+                                                    <button type="button" class="btn btn-xs btn-outline-success convert-btn" data-file-id="{{ file.id }}" data-format="xlsx">Excel</button>
                                                 {% endif %}
-                                                <a href="{{ url_for('conversion.convert', file_id=file.id, target_format='pdf') }}" class="btn btn-xs btn-outline-danger">PDF</a>
-                                                <a href="{{ url_for('conversion.convert', file_id=file.id, target_format='txt') }}" class="btn btn-xs btn-outline-secondary">TXT</a>
+                                                <button type="button" class="btn btn-xs btn-outline-danger convert-btn" data-file-id="{{ file.id }}" data-format="pdf">PDF</button>
+                                                <button type="button" class="btn btn-xs btn-outline-secondary convert-btn" data-file-id="{{ file.id }}" data-format="txt">TXT</button>
                                                 {% if file.file_type.lower() not in ['db', 'sqlite'] %}
-                                                    <a href="{{ url_for('conversion.convert', file_id=file.id, target_format='db') }}" class="btn btn-xs btn-outline-info">DB</a>
+                                                    <button type="button" class="btn btn-xs btn-outline-info convert-btn" data-file-id="{{ file.id }}" data-format="db">DB</button>
                                                 {% endif %}
                                                 {% if file.file_type.lower() not in ['sql'] %}
-                                                    <a href="{{ url_for('conversion.convert', file_id=file.id, target_format='sql') }}" class="btn btn-xs btn-outline-info">SQL</a>
+                                                    <button type="button" class="btn btn-xs btn-outline-info convert-btn" data-file-id="{{ file.id }}" data-format="sql">SQL</button>
                                                 {% endif %}
                                                 <button type="button" class="btn btn-xs btn-outline-warning" data-bs-toggle="modal" data-bs-target="#splitModal-{{ file.id }}">Split</button>
+                                                <button type="button" class="btn btn-xs btn-outline-secondary rename-btn"
+                                                    data-file-id="{{ file.id }}"
+                                                    data-file-name="{{ file.original_filename }}"
+                                                    data-bs-toggle="modal" data-bs-target="#renameModal">Rename</button>
                                             </div>
                                             
                                             {% if file.conversions.all() %}
@@ -189,44 +201,51 @@ td[contenteditable="true"]:focus {
                 <h5 class="modal-title">Split File: {{ file.original_filename }}</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form action="{{ url_for('files.split_file', file_id=file.id) }}" method="POST">
-                <div class="modal-body">
-                    <ul class="nav nav-tabs mb-3" role="tablist">
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#chunk-{{ file.id }}" type="button" role="tab">By Chunk Size</button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#range-{{ file.id }}" type="button" role="tab">Custom Range</button>
-                        </li>
-                    </ul>
-                    <div class="tab-content">
-                        <div class="tab-pane fade show active" id="chunk-{{ file.id }}" role="tabpanel">
-                            <div class="mb-3">
-                                <label class="form-label">Rows per split chunk:</label>
-                                <input type="number" class="form-control" name="rows" value="100" min="1">
-                                <div class="form-text">Splits the entire file into equal parts.</div>
-                            </div>
-                        </div>
-                        <div class="tab-pane fade" id="range-{{ file.id }}" role="tabpanel">
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">Start Row (1-indexed):</label>
-                                    <input type="number" class="form-control" name="start_row" min="1">
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label class="form-label">End Row:</label>
-                                    <input type="number" class="form-control" name="end_row" min="1">
-                                </div>
-                            </div>
-                            <div class="form-text">Extracts a single file containing only this row range.</div>
+            <div class="modal-body">
+                <ul class="nav nav-tabs mb-3" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#chunk-{{ file.id }}" type="button" role="tab">By Chunk Size</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#range-{{ file.id }}" type="button" role="tab">Custom Range</button>
+                    </li>
+                </ul>
+                <div class="tab-content">
+                    <div class="tab-pane fade show active" id="chunk-{{ file.id }}" role="tabpanel">
+                        <div class="mb-3">
+                            <label class="form-label">Rows per split chunk:</label>
+                            <input type="number" class="form-control split-rows-input" data-file-id="{{ file.id }}" value="100" min="1">
+                            <div class="form-text">Splits the entire file into equal parts.</div>
                         </div>
                     </div>
+                    <div class="tab-pane fade" id="range-{{ file.id }}" role="tabpanel">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Start Row (1-indexed):</label>
+                                <input type="number" class="form-control split-start-input" data-file-id="{{ file.id }}" min="1">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">End Row:</label>
+                                <input type="number" class="form-control split-end-input" data-file-id="{{ file.id }}" min="1">
+                            </div>
+                        </div>
+                        <div class="form-text">Extracts a single file containing only this row range.</div>
+                    </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-warning">Split Now</button>
+
+                <!-- Progress bar for split operation -->
+                <div class="split-progress-wrapper-{{ file.id }} d-none mt-3">
+                    <div class="progress" style="height:20px">
+                        <div class="split-progress-{{ file.id }} progress-bar progress-bar-striped progress-bar-animated"
+                            role="progressbar" style="width:0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                    </div>
+                    <p class="split-status-{{ file.id }} small text-muted mt-1">Processing...</p>
                 </div>
-            </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning split-submit-btn" data-file-id="{{ file.id }}">Split Now</button>
+            </div>
         </div>
     </div>
 </div>
@@ -240,19 +259,24 @@ td[contenteditable="true"]:focus {
                 <h5 class="modal-title">Upload File</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form action="{{ url_for('dashboard.upload') }}" method="POST" enctype="multipart/form-data">
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="file" class="form-label">Select File (CSV, Excel, SQLite, SQL)</label>
-                        <input class="form-control" type="file" id="file" name="file" accept=".csv,.xlsx,.xls,.db,.sqlite,.sql" required>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="file" class="form-label">Select File (CSV, Excel, SQLite, SQL)</label>
+                    <input class="form-control" type="file" id="uploadFileInput" name="file" accept=".csv,.xlsx,.xls,.db,.sqlite,.sql" required>
+                </div>
+                <p class="small text-muted">Supported formats: .csv, .xlsx, .xls, .db, .sqlite, .sql</p>
+                <div id="uploadProgressWrapper" class="d-none">
+                    <div class="progress" style="height:20px">
+                        <div id="uploadProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                            role="progressbar" style="width:0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
                     </div>
-                    <p class="small text-muted">Supported formats: .csv, .xlsx, .xls, .db, .sqlite, .sql</p>
+                    <p id="uploadStatus" class="small text-muted mt-1"></p>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Upload</button>
-                </div>
-            </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="uploadSubmitBtn">Upload</button>
+            </div>
         </div>
     </div>
 </div>
@@ -289,14 +313,48 @@ td[contenteditable="true"]:focus {
     </div>
 </div>
 
+<!-- Rename Modal -->
+<div class="modal fade" id="renameModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Rename File</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="renameFileId">
+                <div class="mb-3">
+                    <label class="form-label">New Filename</label>
+                    <input type="text" class="form-control" id="renameInput" placeholder="new_name.csv">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="renameSubmitBtn">Rename</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
+/* ── Select all / per-checkbox ── */
 document.getElementById('selectAll')?.addEventListener('change', function(e) {
     document.querySelectorAll('.file-checkbox').forEach(cb => cb.checked = e.target.checked);
-    checkMergeCompat();
+    updateBulkButtons();
+});
+document.querySelectorAll('.file-checkbox').forEach(cb => {
+    cb.addEventListener('change', updateBulkButtons);
 });
 
 let mergeButton = document.querySelector('button[form="mergeForm"]');
+let bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
 let debounceTimer;
+
+function updateBulkButtons() {
+    const selected = Array.from(document.querySelectorAll('.file-checkbox:checked')).map(cb => cb.value);
+    bulkDeleteBtn.disabled = selected.length === 0;
+    checkMergeCompat();
+}
 
 function checkMergeCompat() {
     clearTimeout(debounceTimer);
@@ -307,7 +365,6 @@ function checkMergeCompat() {
             mergeButton.innerHTML = '<i class="bi bi-intersect"></i> Merge Selected';
             return;
         }
-
         try {
             const response = await fetch('{{ url_for("files.check_merge_compat") }}', {
                 method: 'POST',
@@ -329,10 +386,179 @@ function checkMergeCompat() {
         }
     }, 300);
 }
+updateBulkButtons();
 
-document.querySelectorAll('.file-checkbox').forEach(cb => {
-    cb.addEventListener('change', checkMergeCompat);
+/* ── Bulk delete ── */
+bulkDeleteBtn?.addEventListener('click', async () => {
+    const ids = Array.from(document.querySelectorAll('.file-checkbox:checked')).map(cb => parseInt(cb.value));
+    if (!ids.length) return;
+    if (!confirm(`Delete ${ids.length} file(s)? This cannot be undone.`)) return;
+    try {
+        const res = await fetch('{{ url_for("files.bulk_delete") }}', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({file_ids: ids})
+        });
+        const data = await res.json();
+        if (data.success) location.reload();
+        else alert(data.error || 'Delete failed');
+    } catch(e) { alert('Network error'); }
 });
-checkMergeCompat();
+
+/* ── Rename ── */
+document.querySelectorAll('.rename-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.getElementById('renameFileId').value = btn.dataset.fileId;
+        document.getElementById('renameInput').value = btn.dataset.fileName;
+    });
+});
+document.getElementById('renameSubmitBtn')?.addEventListener('click', async () => {
+    const fileId = document.getElementById('renameFileId').value;
+    const newName = document.getElementById('renameInput').value.trim();
+    if (!newName) return;
+    try {
+        const res = await fetch(`{{ url_for('files.rename_file', file_id=0) }}`.replace('/0', '/' + fileId), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({new_name: newName})
+        });
+        const data = await res.json();
+        if (data.success) location.reload();
+        else alert(data.error || 'Rename failed');
+    } catch(e) { alert('Network error'); }
+});
+
+/* ── XHR Upload with progress ── */
+document.getElementById('uploadSubmitBtn')?.addEventListener('click', () => {
+    const fileInput = document.getElementById('uploadFileInput');
+    if (!fileInput.files.length) { alert('Please select a file.'); return; }
+    const fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    const bar = document.getElementById('uploadProgressBar');
+    const wrapper = document.getElementById('uploadProgressWrapper');
+    const status = document.getElementById('uploadStatus');
+    wrapper.classList.remove('d-none');
+    const btn = document.getElementById('uploadSubmitBtn');
+    btn.disabled = true;
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '{{ url_for("dashboard.upload") }}');
+    xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            bar.style.width = pct + '%';
+            bar.textContent = pct + '%';
+            bar.setAttribute('aria-valuenow', pct);
+        }
+    };
+    xhr.onload = () => {
+        if (xhr.status === 200 || xhr.status === 302) {
+            status.textContent = 'Upload complete! Refreshing…';
+            setTimeout(() => location.reload(), 800);
+        } else {
+            status.textContent = 'Upload failed (status ' + xhr.status + ')';
+            btn.disabled = false;
+        }
+    };
+    xhr.onerror = () => { status.textContent = 'Network error.'; btn.disabled = false; };
+    xhr.send(fd);
+});
+
+/* ── Conversion with progress bar ── */
+document.querySelectorAll('.convert-btn').forEach(btn => {
+    btn.addEventListener('click', async function() {
+        const fileId = this.dataset.fileId;
+        const format = this.dataset.format;
+        const originalText = this.textContent;
+        
+        // Show progress
+        this.disabled = true;
+        this.textContent = '⏳ Converting...';
+        
+        try {
+            const res = await fetch(`{{ url_for('files.api_convert', file_id=0, target_format='csv') }}`.replace('/0/', '/'+fileId+'/').replace('csv', format), {
+                method: 'POST'
+            });
+            const data = await res.json();
+            
+            if (data.success) {
+                this.textContent = '✓ Done!';
+                setTimeout(() => {
+                    this.textContent = originalText;
+                    this.disabled = false;
+                    location.reload();
+                }, 1500);
+            } else {
+                alert('Conversion failed: ' + (data.error || 'Unknown error'));
+                this.textContent = originalText;
+                this.disabled = false;
+            }
+        } catch(e) {
+            alert('Network error: ' + e.message);
+            this.textContent = originalText;
+            this.disabled = false;
+        }
+    });
+});
+
+/* ── Split with progress bar ── */
+document.querySelectorAll('.split-submit-btn').forEach(btn => {
+    btn.addEventListener('click', async function() {
+        const fileId = this.dataset.fileId;
+        const modal = document.getElementById('splitModal-' + fileId);
+        const tabActive = modal.querySelector('.nav-link.active');
+        const isChunkMode = tabActive.getAttribute('data-bs-target').includes('chunk');
+        
+        let rows = null, startRow = null, endRow = null;
+        
+        if (isChunkMode) {
+            rows = modal.querySelector('.split-rows-input').value;
+            if (!rows || rows < 1) {
+                alert('Please enter a valid number of rows');
+                return;
+            }
+        } else {
+            startRow = modal.querySelector('.split-start-input').value;
+            endRow = modal.querySelector('.split-end-input').value;
+            if (!startRow || !endRow || startRow < 1 || endRow < 1) {
+                alert('Please enter valid row numbers');
+                return;
+            }
+        }
+        
+        const formData = new FormData();
+        if (rows) formData.append('rows', rows);
+        if (startRow) formData.append('start_row', startRow);
+        if (endRow) formData.append('end_row', endRow);
+        
+        // Show progress
+        const progressWrapper = document.querySelector('.split-progress-wrapper-' + fileId);
+        const progressBar = document.querySelector('.split-progress-' + fileId);
+        const statusText = document.querySelector('.split-status-' + fileId);
+        progressWrapper.classList.remove('d-none');
+        this.disabled = true;
+        
+        try {
+            const res = await fetch('{{ url_for("files.api_split", file_id=0) }}'.replace('/0', '/'+fileId), {
+                method: 'POST',
+                body: formData
+            });
+            const data = await res.json();
+            
+            if (data.success) {
+                progressBar.style.width = '100%';
+                progressBar.textContent = '100%';
+                statusText.textContent = `✓ Successfully created ${data.created.length} file(s)! Refreshing...`;
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                statusText.textContent = '✗ Error: ' + (data.error || 'Unknown error');
+                this.disabled = false;
+            }
+        } catch(e) {
+            statusText.textContent = '✗ Network error: ' + e.message;
+            this.disabled = false;
+        }
+    });
+});
+
 </script>
 {% endblock %}

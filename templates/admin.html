@@ -1,0 +1,210 @@
+{% extends "layout.html" %}
+
+{% block title %}Admin Panel – FormatHub{% endblock %}
+
+{% block extra_styles %}
+<style>
+body { background: #f0f2f5; }
+.table td, .table th { vertical-align: middle; }
+.badge-admin { background: #6610f2; color: #fff; padding: 3px 8px; border-radius: 4px; font-size: 0.75rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+  <div class="col">
+    <h2><i class="bi bi-shield-lock me-2"></i>Admin Panel</h2>
+    <p class="text-muted">Manage all users and files.</p>
+  </div>
+</div>
+
+<!-- Flash messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<!-- ── Action cards ── -->
+<div class="row g-4 mb-5">
+
+  <!-- Upload for user -->
+  <div class="col-md-4">
+    <div class="card h-100 shadow-sm">
+      <div class="card-header bg-primary text-white"><i class="bi bi-upload me-1"></i> Upload File for User</div>
+      <div class="card-body">
+        <form action="{{ url_for('admin.upload') }}" method="POST" enctype="multipart/form-data">
+          <div class="mb-3">
+            <label class="form-label">Target User</label>
+            <select class="form-select" name="target_user_id" required>
+              <option value="">– select user –</option>
+              {% for u in users %}
+                <option value="{{ u.id }}">{{ u.username }} ({{ u.email }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">File</label>
+            <input class="form-control" type="file"
+                   name="file" accept=".csv,.xlsx,.xls,.db,.sqlite,.sql" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100">Upload</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create blank file -->
+  <div class="col-md-4">
+    <div class="card h-100 shadow-sm">
+      <div class="card-header bg-success text-white"><i class="bi bi-file-earmark-plus me-1"></i> Create Blank File</div>
+      <div class="card-body">
+        <form action="{{ url_for('admin.create_blank') }}" method="POST">
+          <div class="mb-3">
+            <label class="form-label">Target User</label>
+            <select class="form-select" name="target_user_id" required>
+              <option value="">– select user –</option>
+              {% for u in users %}
+                <option value="{{ u.id }}">{{ u.username }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Filename (no extension)</label>
+            <input class="form-control" type="text" name="filename" placeholder="my_data" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Format</label>
+            <select class="form-select" name="file_format">
+              <option value="csv">CSV</option>
+              <option value="xlsx">Excel (XLSX)</option>
+              <option value="db">SQLite DB</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Columns (comma-separated)</label>
+            <input class="form-control" type="text" name="columns" placeholder="id, name, value">
+          </div>
+          <button type="submit" class="btn btn-success w-100">Create</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create from template -->
+  <div class="col-md-4">
+    <div class="card h-100 shadow-sm">
+      <div class="card-header bg-info text-white"><i class="bi bi-layout-text-sidebar me-1"></i> Create from Template</div>
+      <div class="card-body">
+        <form action="{{ url_for('admin.create_from_template') }}" method="POST">
+          <div class="mb-3">
+            <label class="form-label">Target User</label>
+            <select class="form-select" name="target_user_id" required>
+              <option value="">– select user –</option>
+              {% for u in users %}
+                <option value="{{ u.id }}">{{ u.username }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Template</label>
+            <select class="form-select" name="template" id="adminTemplateSelect">
+              <option value="contacts">Contacts</option>
+              <option value="orders">Orders</option>
+              <option value="inventory">Inventory</option>
+              <option value="employees">Employees</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </div>
+          <div class="mb-3 d-none" id="customColumnsGroup">
+            <label class="form-label">Custom Columns (comma-separated)</label>
+            <input class="form-control" type="text" name="custom_columns" placeholder="col1, col2, col3">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Filename (no extension)</label>
+            <input class="form-control" type="text" name="filename" placeholder="contacts_template">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Format</label>
+            <select class="form-select" name="file_format">
+              <option value="csv">CSV</option>
+              <option value="xlsx">Excel (XLSX)</option>
+              <option value="db">SQLite DB</option>
+            </select>
+          </div>
+          <button type="submit" class="btn btn-info w-100 text-white">Create</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /row -->
+
+<!-- ── Users table ── -->
+<div class="card shadow-sm mb-5">
+  <div class="card-header"><strong>All Users</strong> ({{ users | length }})</div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover table-sm">
+      <thead>
+        <tr>
+          <th>#</th><th>Username</th><th>Email</th><th>Admin?</th>
+          <th>Joined</th><th>Files</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td>{{ u.id }}</td>
+          <td>{{ u.username }}</td>
+          <td>{{ u.email }}</td>
+          <td>{% if u.is_admin %}<span class="badge-admin">✓ Admin</span>{% else %}–{% endif %}</td>
+          <td>{{ u.created_at.strftime('%Y-%m-%d') }}</td>
+          <td>{{ u.files | length }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted">No users found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Files table ── -->
+<div class="card shadow-sm">
+  <div class="card-header"><strong>All Files</strong> ({{ files | length }})</div>
+  <div class="card-body table-responsive">
+    <table class="table table-hover table-sm">
+      <thead>
+        <tr>
+          <th>#</th><th>Owner</th><th>Filename</th><th>Type</th><th>Uploaded</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in files %}
+        <tr>
+          <td>{{ f.id }}</td>
+          <td>{{ f.user.username }}</td>
+          <td>{{ f.original_filename }}</td>
+          <td><span class="badge bg-secondary">{{ f.file_type.upper() }}</span></td>
+          <td>{{ f.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted">No files found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+document.getElementById('adminTemplateSelect')?.addEventListener('change', function () {
+    const group = document.getElementById('customColumnsGroup');
+    group.classList.toggle('d-none', this.value !== 'custom');
+});
+</script>
+{% endblock %}

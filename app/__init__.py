@@ -25,11 +25,13 @@ def create_app(config_class=Config):
     from app.routes.dashboard import dashboard_bp
     from app.routes.conversion import conversion_bp
     from app.routes.files import files_bp
+    from app.routes.admin import admin_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
     app.register_blueprint(conversion_bp)
     app.register_blueprint(files_bp)
+    app.register_blueprint(admin_bp)
 
     with app.app_context():
         db.create_all()

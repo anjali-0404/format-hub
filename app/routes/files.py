@@ -488,3 +488,226 @@ def merge_files():
         flash(f'Error merging files: {str(e)}', 'danger')
         
     return redirect(url_for('dashboard.index'))
+
+
+# ─── JSON split endpoint (used by progress-bar AJAX) ───────────────────────
+@files_bp.route('/api/split/<int:file_id>', methods=['POST'])
+@login_required
+def api_split(file_id):
+    file = File.query.get_or_404(file_id)
+    if file.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    try:
+        try:
+            df, table_name = _load_dataframe(file)
+        except ValueError as ve:
+            return jsonify({'error': str(ve)}), 400
+
+        start_row = request.form.get('start_row')
+        end_row   = request.form.get('end_row')
+
+        from app.services.cloudinary_service import CloudinaryService
+        created = []
+
+        if start_row and end_row:
+            s_idx = max(int(start_row) - 1, 0)
+            e_idx = int(end_row)
+            split_df = df.iloc[s_idx:e_idx]
+            new_filename = f"{file.original_filename.rsplit('.', 1)[0]}_range_{int(start_row)}_{int(end_row)}.{file.file_type}"
+            split_path = os.path.join(current_app.config['UPLOAD_FOLDER'], new_filename)
+
+            if file.file_type.lower() == 'csv':
+                split_df.to_csv(split_path, index=False)
+            elif file.file_type.lower() in ['xlsx', 'xls']:
+                split_df.to_excel(split_path, index=False)
+            elif file.file_type.lower() in SQLITE_TYPES:
+                if file.file_type.lower() == 'sql':
+                    _write_sql_dump(split_df, split_path, table_name=table_name or 'data')
+                else:
+                    import sqlite3 as sq3
+                    conn = sq3.connect(split_path)
+                    split_df.to_sql(table_name or 'data', conn, if_exists='replace', index=False)
+                    conn.close()
+
+            cloudinary_url, public_id = CloudinaryService.upload_file(split_path, folder=f"user_{current_user.id}/originals")
+            new_file = File(user_id=current_user.id, original_filename=new_filename,
+                            cloudinary_url=cloudinary_url, public_id=public_id, file_type=file.file_type)
+            db.session.add(new_file)
+            if cloudinary_url and os.path.exists(split_path):
+                os.remove(split_path)
+            created.append(new_filename)
+        else:
+            import math
+            rows_per_file = int(request.form.get('rows', 100))
+            num_splits = math.ceil(len(df) / rows_per_file)
+            if num_splits <= 1:
+                return jsonify({'error': 'File is too small to split with that row count.'}), 400
+
+            for i in range(num_splits):
+                split_df = df.iloc[i*rows_per_file:(i+1)*rows_per_file]
+                new_filename = f"{file.original_filename.rsplit('.', 1)[0]}_part{i+1}.{file.file_type}"
+                split_path = os.path.join(current_app.config['UPLOAD_FOLDER'], new_filename)
+
+                if file.file_type.lower() == 'csv':
+                    split_df.to_csv(split_path, index=False)
+                elif file.file_type.lower() in ['xlsx', 'xls']:
+                    split_df.to_excel(split_path, index=False)
+                elif file.file_type.lower() in SQLITE_TYPES:
+                    if file.file_type.lower() == 'sql':
+                        _write_sql_dump(split_df, split_path, table_name=table_name or 'data')
+                    else:
+                        import sqlite3 as sq3
+                        conn = sq3.connect(split_path)
+                        split_df.to_sql(table_name or 'data', conn, if_exists='replace', index=False)
+                        conn.close()
+
+                cloudinary_url, public_id = CloudinaryService.upload_file(split_path, folder=f"user_{current_user.id}/originals")
+                new_file = File(user_id=current_user.id, original_filename=new_filename,
+                                cloudinary_url=cloudinary_url, public_id=public_id, file_type=file.file_type)
+                db.session.add(new_file)
+                if cloudinary_url and os.path.exists(split_path):
+                    os.remove(split_path)
+                created.append(new_filename)
+
+        db.session.commit()
+        return jsonify({'success': True, 'created': created})
+
+    except Exception as e:
+        import logging
+        logging.exception("Error in api_split")
+        return jsonify({'error': str(e)}), 500
+
+
+# ─── JSON convert endpoint (used by progress-bar AJAX) ─────────────────────
+@files_bp.route('/api/convert/<int:file_id>/<target_format>', methods=['POST'])
+@login_required
+def api_convert(file_id, target_format):
+    """Thin wrapper — delegates to ConversionService and saves result to DB."""
+    file = File.query.get_or_404(file_id)
+    if file.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    from app.services.conversion_service import ConversionService
+    from app.services.cloudinary_service import CloudinaryService
+    from app.models import Conversion
+    import logging
+
+    try:
+        input_path = get_local_path(file)
+    except Exception as e:
+        return jsonify({'error': 'Error fetching file for conversion.'}), 500
+
+    output_filename = f"converted_{file_id}.{target_format}"
+
+    try:
+        if target_format == 'xlsx':
+            output_path = ConversionService.convert_to_excel(input_path, output_filename)
+        elif target_format == 'csv':
+            output_path = ConversionService.convert_to_csv(input_path, output_filename)
+        elif target_format == 'txt':
+            output_path = ConversionService.convert_to_txt(input_path, output_filename)
+        elif target_format == 'pdf':
+            output_path = ConversionService.convert_to_pdf(input_path, output_filename)
+        elif target_format in ['db', 'sqlite']:
+            output_path = ConversionService.convert_to_sqlite(input_path, output_filename)
+        elif target_format == 'sql':
+            output_path = ConversionService.convert_to_sql(input_path, output_filename)
+        else:
+            return jsonify({'error': f'Format {target_format} not supported'}), 400
+
+        cloudinary_url, public_id = CloudinaryService.upload_file(
+            output_path, folder=f"user_{current_user.id}/converted"
+        )
+        conv = Conversion(file_id=file.id, output_format=target_format,
+                          cloudinary_url=cloudinary_url, public_id=public_id)
+        db.session.add(conv)
+        db.session.commit()
+
+        if os.path.exists(output_path):
+            os.remove(output_path)
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        logging.exception("Error in api_convert")
+        return jsonify({'error': str(e)}), 500
+
+
+# ─── Rename ─────────────────────────────────────────────────────────────────
+@files_bp.route('/rename/<int:file_id>', methods=['POST'])
+@login_required
+def rename_file(file_id):
+    file = File.query.get_or_404(file_id)
+    if file.user_id != current_user.id:
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    new_name = request.json.get('new_name', '').strip()
+    if not new_name:
+        return jsonify({'error': 'Name cannot be empty'}), 400
+
+    # Preserve original extension
+    if '.' in file.original_filename:
+        old_ext = file.original_filename.rsplit('.', 1)[-1]
+        if not new_name.endswith(f'.{old_ext}'):
+            base = new_name.rsplit('.', 1)[0] if '.' in new_name else new_name
+            new_name = f"{base}.{old_ext}"
+
+    safe_new = secure_filename(new_name)
+    if not safe_new:
+        return jsonify({'error': 'Invalid filename'}), 400
+
+    upload_dir = current_app.config['UPLOAD_FOLDER']
+    old_path = os.path.join(upload_dir, secure_filename(file.original_filename))
+    new_path = os.path.join(upload_dir, safe_new)
+
+    if os.path.exists(old_path) and old_path != new_path:
+        try:
+            os.rename(old_path, new_path)
+        except Exception as e:
+            return jsonify({'error': f'Could not rename on disk: {e}'}), 500
+
+    file.original_filename = safe_new
+    db.session.commit()
+    return jsonify({'success': True, 'new_name': safe_new})
+
+
+# ─── Bulk Delete ────────────────────────────────────────────────────────────
+@files_bp.route('/bulk_delete', methods=['POST'])
+@login_required
+def bulk_delete():
+    data = request.get_json(silent=True) or {}
+    file_ids = data.get('file_ids', [])
+    if not file_ids:
+        return jsonify({'error': 'No files selected'}), 400
+
+    files = File.query.filter(File.id.in_(file_ids), File.user_id == current_user.id).all()
+    if not files:
+        return jsonify({'error': 'No matching files found'}), 404
+
+    from app.services.cloudinary_service import CloudinaryService
+    from app.models import Conversion
+    upload_dir = current_app.config['UPLOAD_FOLDER']
+    deleted = []
+
+    for f in files:
+        try:
+            if f.public_id:
+                CloudinaryService.delete_file(f.public_id)
+        except Exception:
+            pass
+
+        for name in [f.original_filename, secure_filename(f.original_filename)]:
+            p = os.path.join(upload_dir, name)
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
+
+        Conversion.query.filter_by(file_id=f.id).delete()
+        db.session.delete(f)
+        deleted.append(f.id)
+
+    db.session.commit()
+    return jsonify({'success': True, 'deleted': deleted})
