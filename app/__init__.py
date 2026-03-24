@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager
 from config import Config
 import os
+import logging
 
 db = SQLAlchemy()
 login_manager = LoginManager()
@@ -18,8 +19,11 @@ def create_app(config_class=Config):
     login_manager.init_app(app)
 
     # Ensure upload folder exists
-    if not os.path.exists(app.config['UPLOAD_FOLDER']):
-        os.makedirs(app.config['UPLOAD_FOLDER'])
+    try:
+        if not os.path.exists(app.config['UPLOAD_FOLDER']):
+            os.makedirs(app.config['UPLOAD_FOLDER'])
+    except OSError as e:
+        logging.exception('Could not prepare upload folder at startup: %s', e)
 
     from app.routes.auth import auth_bp
     from app.routes.dashboard import dashboard_bp
@@ -34,6 +38,9 @@ def create_app(config_class=Config):
     app.register_blueprint(admin_bp)
 
     with app.app_context():
-        db.create_all()
+        try:
+            db.create_all()
+        except Exception as e:
+            logging.exception('Database initialization failed during app startup: %s', e)
 
     return app
