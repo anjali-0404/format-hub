@@ -1,5 +1,4 @@
 # FormatHub: Project Next Steps & Roadmap
-
 ## Immediate Priorities
 ### 1. Optimize SQLite Large-File Hydration
 The new SQLite processing backbone connects safely, but large production databases with millions of rows will crash the `ConversionService` when executing the `pd.read_sql_query` instruction.
