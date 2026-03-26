@@ -1,5 +1,4 @@
 # FormatHub - Enhanced Features Guide
-
 ## ✅ What's New
 
 ### 1. SQLite Database Support
